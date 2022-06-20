@@ -1,0 +1,200 @@
+---
+title: "Network-Analysis-Project"
+author: "Group-5 Anshita Aishwarya, Shrutika Swamy"
+date: "12/15/2021"
+output: pdf_document
+---
+
+## Importing the required libraries
+
+```{r}
+library(stringr)
+library(sjmisc)
+library(igraph)
+library(dplyr)
+library(ggplot2)
+```
+
+## Data Cleaning
+
+```{r}
+
+# Data Load
+Keyword_data <- read.csv('Keyword_data.csv')
+
+# Removing the 1st column "Title"
+Keyword_data <- Keyword_data[-1]
+
+# Dropping the rows that have null entries
+Keyword_data <- Keyword_data[!apply(Keyword_data == "", 1, all), ]
+rownames(Keyword_data) <- 1:49
+
+```
+
+## Creating a Keyword Adjacency Matrix
+An adjacency matrix is a square matrix used to denote the weights between N x N items. In practice, it is used to map the association between graph nodes.
+
+```{r Task 1.1}
+
+options(warn = -1)
+
+# Obtaining all the unique keywords from the dataset
+keywords <- unique(c(Keyword_data$Keyword.1, Keyword_data$Keyword.2, Keyword_data$Keyword.3,
+                   Keyword_data$Keyword.4, Keyword_data$Keyword.5, Keyword_data$Keyword.6,
+                   Keyword_data$Keyword.7, Keyword_data$Keyword.8, Keyword_data$Keyword.9,
+                   Keyword_data$Keyword.10, Keyword_data$Keyword.11, Keyword_data$Keyword.12))
+keywords <- keywords[!keywords == ""]
+
+# Concatenate all the keywords in each row to a single string
+# Matrix to store the concatenated keywords (Keyword.1, Keyword.2 and so on) for each row
+KCN_each_row <- matrix(data = "|", nrow = 49, ncol = 1)
+
+# for loop to iterate through the 49 rows to obtain concatenated strings for each row
+# Adding a pipe delimiter between keywords so that it checks for the exact string while matching for creating adjacency matrix
+for(i in 1 : nrow(KCN_each_row)) {
+  for(j in 1 : ncol(Keyword_data)) {
+    KCN_each_row[i,] <- paste(KCN_each_row[i,], Keyword_data[i,j], '|')
+  }
+}
+
+
+# Creating a matrix to store the final weighted co-occurrence result
+KCN_data <- matrix(data=0, nrow = length(keywords), ncol = length(keywords))
+rownames(KCN_data) <- keywords
+colnames(KCN_data) <- keywords
+
+# Storing the colnames and rownames in variables to use it to iterate through the final matrix
+keywords_rows <- rownames(KCN_data)
+keywords_columns <- colnames(KCN_data)
+
+for(i in 1 : nrow(KCN_data)) {
+  for(j in 1 : ncol(KCN_data)) {
+    
+    # Create a matrix to count the co-occurrences of i-th and j-th keyword in each row of Keyword_data
+    # Gets reset for each new column keyword of the KCN matrix
+    count_each_keyword <- matrix(data = 0, nrow = length(KCN_each_row))
+    for(k in 1 : length(KCN_each_row)) {
+      
+      keyword_to_check_row <- paste('|', keywords_rows[i], '|')
+      keyword_to_check_column <- paste('|', keywords_columns[j], '|')
+      count_each_keyword[k] <- as.integer((str_contains(KCN_each_row[k], keyword_to_check_row))
+         && (str_contains(KCN_each_row[k], keyword_to_check_column)))
+      
+      # Setting the diagonal elements of the KCN Matrix as O
+      if(i == j)
+        KCN_data[i,j] <- 0
+      else
+        # Setting the total occurrence values for each keyword pair
+        KCN_data[i,j] <- colSums(count_each_keyword)
+    }
+  }
+}
+
+sum(KCN_data)
+View(KCN_data)
+
+```
+
+## Creating a weighted Network using Adjacency Matrix
+A network is a connection of interacting nodes using edges. When the edges represent the number of connections, then the network is called a weighted network. 
+
+```{r Task 1.2}
+
+# Creating the weighted network
+KCN_network <- graph_from_adjacency_matrix(KCN_data, mode = "undirected", weighted = TRUE)
+summary(KCN_network)
+
+# Exploring the igraph data
+# number of edges
+gsize(KCN_network)
+# number of vertex
+gorder(KCN_network)
+# node list
+V(KCN_network)
+# edge list
+E(KCN_network)
+
+KCN_plot <- igraph::simplify(KCN_network, remove.multiple = TRUE, remove.loops = TRUE)
+plot(KCN_plot,
+     layout = layout_with_graphopt,
+     edge.arrow.size = 0.1,
+     vertex.size = 3,
+     vertex.color = "red",
+     vertex.label.cex = 0.5)
+title(main = list("Rarely Used Routes", cex=1.5))
+
+```
+
+## Determing the Node Degree and Strength of each Node
+
+```{r Task 1.3}
+
+KCN_degree_strength <- cbind(degree(KCN_network, mode = "all"), strength(KCN_network, mode = "all"))
+KCN_degree_strength <- as.data.frame(KCN_degree_strength)
+colnames(KCN_degree_strength) <- c("Degree", "Strength")
+
+# View(KCN_degree_strength)
+
+```
+
+## Finding:
+1.) Top 10 Nodes by Degree
+2.) Top 10 Nodes by Strength
+3.) Top 10 Node Pairs by Weight
+
+```{r Task 1.4}
+
+# Top 10 Nodes by Degree
+KCN_degree_top10 <- KCN_degree_strength %>%
+  select(Degree) %>%
+  arrange(desc(Degree)) %>%
+  top_n(10)
+
+# Top 10 Nodes by Strength
+KCN_strength_top10 <- KCN_degree_strength %>%
+  select(Strength) %>%
+  arrange(desc(Strength)) %>%
+  top_n(10)
+
+# Top 10 Node Pairs by Weight
+KCN_node_pairs <- as.data.frame(E(KCN_network)$weight)
+edges <- as.data.frame(as_edgelist(KCN_network, names = TRUE))
+edges <- as.data.frame(paste(edges$V1, edges$V2, sep = " -- "))
+KCN_node_pairs <- cbind(edges = edges, weight = KCN_node_pairs)
+colnames(KCN_node_pairs) <- c("Node Pairs", "Weight")
+KCN_node_pairs_top10 <- KCN_node_pairs %>%
+  arrange(desc(Weight)) %>%
+  slice(1:10)
+
+# View(KCN_degree_top10)
+# View(KCN_strength_top10)  
+# View(KCN_node_pairs_top10)
+```
+
+## Plotting Average Strength v/s Degree of the Network
+
+```{r Task 1.6}
+
+#Calculating average strength for different degree values
+KCN_avg_Strength_by_degree <- KCN_degree_strength %>%
+  group_by(Degree) %>%
+  summarise(Avg_Strength = mean(Strength))
+
+#Average Strength v/s Degree
+  ggplot(KCN_avg_Strength_by_degree, aes(Degree, Avg_Strength, size = Avg_Strength)) +
+  geom_point(alpha = 0.5) +
+  scale_size(name = "Avg Strength")+
+  ggtitle("Average Strength v/s Degree of the Network Graph") +
+  xlab("Degree of the network") +
+  ylab("Average Strength of the network") +
+  theme(plot.title = element_text(size = 13, face = "bold.italic", color = "red", hjust = 0.5),
+        axis.title.x = element_text(size = 7, face = "bold", colour = "blue"),
+        axis.title.y = element_text(size = 7, face = "bold", colour = "blue"),
+        axis.text.x = element_text(size = 5, angle = 0),
+        axis.text.y = element_text(size = 5, angle = 90),
+        legend.position = "right",
+        legend.title = element_text(size = 7, face = "bold"),
+        legend.text = element_text(size = 7, face = "bold"),
+        strip.text = element_text(size = 7))
+
+```
